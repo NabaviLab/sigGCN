@@ -20,6 +20,26 @@ import os
 from sklearn import preprocessing
 from sklearn import linear_model
 
+def generate_loader(train_data,val_data, test_data, train_labels, val_labels, test_labels, batchsize):
+    train_labels = train_labels.astype(np.int64)
+    test_labels = test_labels.astype(np.int64)
+    val_labels = val_labels.astype(np.int64)
+    train_data = torch.FloatTensor(train_data)
+    train_labels = torch.LongTensor(train_labels)
+    val_data = torch.FloatTensor(val_data)
+    val_labels = torch.LongTensor(val_labels)
+    test_data = torch.FloatTensor(test_data)
+    test_labels = torch.LongTensor(test_labels)
+    
+    dset_train = Data.TensorDataset(train_data, train_labels)
+    train_loader = Data.DataLoader(dset_train, batch_size = batchsize, shuffle = True)
+    dset_val = Data.TensorDataset(val_data, val_labels)
+    val_loader = Data.DataLoader(dset_val, batch_size = len(dset_val), shuffle = False)
+    dset_test = Data.TensorDataset(test_data, test_labels)
+    test_loader = Data.DataLoader(dset_test, batch_size = len(dset_test), shuffle = False)
+    
+    return train_loader, val_loader, test_loader
+
 def encode_onehot(labels):
     classes = set(labels)
     classes_dict = {c: np.identity(len(classes))[i, :] for i, c in
@@ -30,74 +50,49 @@ def encode_onehot(labels):
 
 
 
-def high_var_dfdata_gene(data, num, gene = None, ind=False):
+def high_var_npdata(data, num, gene = None, ind=False): #data: cell * gene
     dat = np.asarray(data)
-    datavar = np.var(dat, axis = 1)*(-1)
-    ind_maxvar = np.argsort(datavar) #small --> big
-    if gene is None and ind is False:
-        return data.iloc[ind_maxvar[:num]]
-    if ind:
-        return data.iloc[ind_maxvar[:num]], ind_maxvar[:num]
-    ind_gene = data.index.values[ind_maxvar[:num]]
-    return data.iloc[ind_maxvar[:num]],gene.loc[ind_gene]
-
-def high_var_dfdata(data, num, gene = None, ind=False):
-    dat = np.asarray(data)
-    datavar = np.var(dat, axis = 1)*(-1)
+    datavar = np.var(dat, axis = 0)*(-1)
     ind_maxvar = np.argsort(datavar)
     gene_ind = ind_maxvar[:num]
     if gene is None and ind is False:
-        return data.iloc[ind_maxvar[:num]]
+        return data[:, gene_ind]
     if ind:
-        return data.iloc[gene_ind], gene_ind
-    return data.iloc[gene_ind],gene.iloc[gene_ind]
-
-def high_var_npdata(data, num, gene = None, ind=False): #data: gene*cell
-    dat = np.asarray(data)
-    datavar = np.var(dat, axis = 1)*(-1)
-    ind_maxvar = np.argsort(datavar)
-    gene_ind = ind_maxvar[:num]
-    if gene is None and ind is False:
-        return data[gene_ind]
-    if ind:
-        return data[gene_ind],gene_ind
-    return data[gene_ind],gene.iloc[gene_ind]
+        return data[:,gene_ind],gene_ind
+    return data[:,gene_ind],gene.iloc[gene_ind]
 
 
 def high_tfIdf_npdata(data,tfIdf, num, gene = None, ind=False):
     dat = np.asarray(data)
-    datavar = np.var(tfIdf, axis = 1)*(-1)
+    datavar = np.var(tfIdf, axis = 0)*(-1)
     ind_maxvar = np.argsort(datavar)
     gene_ind = ind_maxvar[:num]
     np.random.shuffle(gene_ind)
     if gene is None and ind is False:
-        return data[gene_ind]
+        return data[:,gene_ind]
     if ind:
-        return data[gene_ind],gene_ind
-    return data[gene_ind],gene.iloc[gene_ind]
+        return data[:,gene_ind],gene_ind
+    return data[:,gene_ind],gene.iloc[gene_ind]
 
-def high_expr_dfdata(data, num, gene = None, ind=False):
-    dat = np.asarray(data)
-    datavar = np.sum(dat, axis = 1)*(-1)
-    ind_maxvar = np.argsort(datavar)
-    gene_ind = ind_maxvar[:num]
-    if gene is None and ind is False:
-        return data.iloc[gene_ind]
-    if ind:
-        return data.iloc[gene_ind], gene_ind
-    return data.iloc[gene_ind],gene.iloc[gene_ind]
 
-def high_expr_npdata(data, num, gene = None, ind=False):
-    dat = np.asarray(data)
-    datavar = np.sum(dat, axis = 1)*(-1)
-    ind_maxvar = np.argsort(datavar)
-    gene_ind = ind_maxvar[:num]
-#    np.random.shuffle(gene_ind)
-    if gene is None and ind is False:
-        return data[gene_ind]
-    if ind:
-        return data[gene_ind],gene_ind
-    return data[gene_ind],gene.iloc[gene_ind]
+
+def down_genes(alldata, adjall, num_gene):
+    train_data_all = np.log1p(alldata)
+    maxscale = np.max(train_data_all) 
+    print('maxscale:',maxscale)
+    train_data_all = train_data_all/np.max(train_data_all)    
+    train_data_all, geneind = high_var_npdata(train_data_all, num= num_gene, ind=1)
+
+    adj = adjall[geneind,:][:,geneind]
+    adj = adj + sp.eye(adj.shape[0])
+    
+    print('load done.')
+    adj = adj/np.max(adj)
+    adj = adj.astype('float32')
+
+    print('adj_shape:',adj.shape, ' [# cell, # gene]', train_data_all.shape)    
+    return train_data_all, adj
+
 
 def get_rank_gene(OutputDir, dataset):
     gene = pd.read_csv(OutputDir+dataset+'/rank_genes_dropouts_'+dataset+'.csv')
@@ -155,7 +150,8 @@ def norm_max(data):
     data = data/max_data
     return data
 
-def findDuplicated(df):
+def findDuplicated(df): 
+    # input df: cells * genes
     df = df.T
     idx = df.index.str.upper()
     filter1 = idx.duplicated(keep = 'first')
@@ -178,7 +174,7 @@ def load_labels(path, dataset):
     return labels
     
 
-def load_largesc(path = '/Users/tianyu/Desktop/scRNAseq_Benchmark_datasets/Intra-dataset/', dataset='Zhengsorted',net='String'):
+def load_largesc(path, dirAdj, dataset, net):
     
     if dataset == 'Zhengsorted':
         features = pd.read_csv(os.path.join(path + dataset) +'/Filtered_DownSampled_SortedPBMC_data.csv',index_col = 0, header = 0)
@@ -206,24 +202,6 @@ def load_largesc(path = '/Users/tianyu/Desktop/scRNAseq_Benchmark_datasets/Intra
         #path = os.path.join(path, 'Pancreatic_data/')   
         features = pd.read_csv(os.path.join(path + dataset) +'/Filtered_Segerstolpe_HumanPancreas_data.csv',index_col = 0, header = 0)
 
-    elif dataset == 'AMB':
-        features = pd.read_csv(os.path.join(path + dataset) +'/Filtered_mouse_allen_brain_data.csv',index_col = 0, header = 0)
-        features = findDuplicated(features)
-        print(features.shape)
-        adj = sp.load_npz(os.path.join(path + dataset) + '/adj'+ net + dataset + '_'+str(features.T.shape[0])+'.npz')
-        print(adj.shape)
-
-        shuffle_index = np.loadtxt(os.path.join(path + dataset) +'/shuffle_index_'+dataset+'.txt')
-        
-        labels = pd.read_csv(os.path.join(path + dataset) +'/Labels.csv',index_col = None)
-        class_mapping = {label: idx for idx, label in enumerate(np.unique(labels['Class']))}
-        labels['Class'] = labels['Class'].map(class_mapping)
-        del class_mapping
-        labels = np.asarray(labels.iloc[:,0]).reshape(-1) 
-        
-        return adj, np.asarray(features.T), labels,shuffle_index
-
-    
     elif dataset == 'Zheng68K':
         features = pd.read_csv(os.path.join(path + dataset) +'/Filtered_68K_PBMC_data.csv',index_col = 0, header = 0)
         
@@ -237,185 +215,18 @@ def load_largesc(path = '/Users/tianyu/Desktop/scRNAseq_Benchmark_datasets/Intra
          
     features = findDuplicated(features)
     print(features.shape)
-    adj = sp.load_npz(os.path.join(path + dataset) + '/adj'+ net + dataset + '_'+str(features.T.shape[0])+'.npz')
+    adj = sp.load_npz(dirAdj + 'adj'+ net + dataset + '_'+str(features.T.shape[0])+'.npz')
     print(adj.shape)
     labels = load_labels(path, dataset)
-    shuffle_index = np.loadtxt(os.path.join(path + dataset) +'/shuffle_index_'+dataset+'.txt')
+    try:
+        shuffle_index = np.loadtxt(os.path.join(path + dataset) +'/shuffle_index_'+dataset+'1.txt')
+    except OSError:
+        shuffle_index = np.random.permutation(features.shape[0])
     
-    return adj, np.asarray(features.T), labels,shuffle_index
+    return adj, np.asarray(features), labels,shuffle_index  # cells*genes
 
 
 
-# In[]:
-def load_pancreas(path = '/Users/tianyu/Desktop/scRNAseq_Benchmark_datasets/Intra-dataset/', dataset='',net='String'):
-
-    ##############
-    xin = pd.read_csv(os.path.join(path + 'Xin') +'/Filtered_Xin_HumanPancreas_data.csv',index_col = 0, header = 0)
-    bh = pd.read_csv(os.path.join(path + 'BaronHuman') +'/Filtered_Baron_HumanPancreas_data.csv',index_col = 0, header = 0)
-    mu = pd.read_csv(os.path.join(path + 'Muraro') +'/Filtered_Muraro_HumanPancreas_data_renameCols.csv',index_col = 0, header = 0)
-    se = pd.read_csv(os.path.join(path + 'Segerstolpe') +'/Filtered_Segerstolpe_HumanPancreas_data.csv',index_col = 0, header = 0)
-    
-    gene_set = list(set(xin.columns)&set(bh.columns)&set(mu.columns)&set(se.columns))
-    gene_set.sort()
-    gene_index_bh = [i for i, e in enumerate(bh.columns) if e in gene_set]
-    xin = xin[gene_set]
-    bh = bh[gene_set]
-    mu = mu[gene_set]
-    se = se[gene_set]
-    
-    mu = np.log1p(mu)
-    se = np.log1p(se)
-    bh = np.log1p(bh)
-    xin = np.log1p(xin)
-#    indexXin = xin.index.to_list()
-#    indexMu = mu.index.to_list()
-#    indexSe = se.index.to_list()
-#    indexBh = bh.index.to_list()
-    min_max_scaler = preprocessing.MinMaxScaler()
-    temp = min_max_scaler.fit_transform(np.asarray(mu))
-    mu = pd.DataFrame(temp, index = mu.index, columns = mu.columns)
-    temp = min_max_scaler.fit_transform(np.asarray(se))
-    se = pd.DataFrame(temp, index = se.index, columns = se.columns)
-    temp = min_max_scaler.fit_transform(np.asarray(bh))
-    bh = pd.DataFrame(temp, index = bh.index, columns = bh.columns)
-    temp = min_max_scaler.fit_transform(np.asarray(xin))
-    xin = pd.DataFrame(temp, index = xin.index, columns = xin.columns)
-    del temp
-    #mu = preprocessing.normalize(np.asarray(mu), axis = 1, norm='l1')
-    
-    
-    
-    ############### 
-    features = pd.read_csv(os.path.join(path + 'BaronHuman') +'/Filtered_Baron_HumanPancreas_data.csv',index_col = 0, header = 0, nrows=2)      
-    features = findDuplicated(features)
-    print(features.shape)
-    adj = sp.load_npz(os.path.join(path + 'BaronHuman') + '/adj'+ net + 'BaronHuman' + '_'+str(features.T.shape[0])+'.npz')
-    print(adj.shape)
-    adj = adj[gene_index_bh, :][:, gene_index_bh]
-    
-    ###############
-    datasets = ['Xin','BaronHuman','Muraro','Segerstolpe', 'BaronMouse']
-    l_xin = pd.read_csv(os.path.join(path + datasets[0]) +'/Labels.csv',index_col = None)
-    l_bh = pd.read_csv(os.path.join(path + datasets[1]) +'/Labels.csv',index_col = None) 
-    l_mu = pd.read_csv(os.path.join(path + datasets[2]) +'/Labels.csv',index_col = None) 
-    l_mu = l_mu.replace('duct','ductal')
-    l_mu = l_mu.replace('pp','gamma')
-    l_se = pd.read_csv(os.path.join(path + datasets[3]) +'/Labels.csv',index_col = None) 
-    #labels_set = list(set(l_xin['x']) & set(l_bh['x']) & set(l_mu['x']))
-    
-    if True:
-        labels_set = set(['alpha','beta','delta','gamma'])
-        index = [i for i in range(len(l_mu)) if l_mu['x'][i] in labels_set]
-        mu = mu.iloc[index]
-        l_mu = l_mu.iloc[index]
-        index = [i for i in range(len(l_se)) if l_se['x'][i] in labels_set]
-        se = se.iloc[index]
-        l_se = l_se.iloc[index]
-        index = [i for i in range(len(l_bh)) if l_bh['x'][i] in labels_set]
-        bh = bh.iloc[index]
-        l_bh = l_bh.iloc[index]
-        index = [i for i in range(len(l_xin)) if l_xin['x'][i] in labels_set]
-        xin = xin.iloc[index]
-        l_xin = l_xin.iloc[index]
-    alldata = pd.concat((xin,bh,mu,se), 0)
-
-    #alldata.to_csv(path+'Data_pancreas_4.csv')
-    
-    labels = pd.concat((l_xin, l_bh, l_mu, l_se), 0)
-#    labels.to_csv(path+'Labels_pancreas_19.csv')
-    labels.columns = ['V1']
-    class_mapping = {label: idx for idx, label in enumerate(np.unique(labels['V1']))}
-    labels['V1'] = labels['V1'].map(class_mapping)
-    del class_mapping
-    labels = np.asarray(labels).reshape(-1)  
-    ###############
-    #shuffle_index = np.asarray([1449, 8569, 2122,2133])
-    shuffle_index = np.asarray([1449, 5707, 1554, 1440])
-    
-    return adj, np.asarray(alldata.T), labels, shuffle_index    
-
-# In[]:
-
-def build_adj_weight(idx_features):
-
-    edges_unordered =  pd.read_csv('/users/tianyu/desktop/imputation/STRING_ggi.csv', index_col = None, usecols = [1,2,16]) 
-#    edges_unordered = np.asarray(edges_unordered[['protein1','protein2','combined_score']])   # Upper case.
-    edges_unordered = np.asarray(edges_unordered) 
-    
-    idx = []
-    mapped_index = idx_features.index.str.upper() # if data.index is lower case. Usoskin data is upper case, do not need it.
-    for i in range(len(edges_unordered)):
-        if edges_unordered[i,0] in mapped_index and edges_unordered[i,1] in mapped_index:
-            idx.append(i)
-    edges_unordered = edges_unordered[idx]
-    print ('idx_num:',len(idx))
-    del i,idx
-    
-    # build graph
-    idx = np.array(mapped_index)
-    idx_map = {j: i for i, j in enumerate(idx)} # eg: {'TSPAN12': 0, 'TSHZ1': 1}
-    # the key (names) in edges_unordered --> the index (which row) in matrix
-    edges = np.array(list(map(idx_map.get, edges_unordered[:,0:2].flatten())),
-                     dtype=np.int32).reshape(edges_unordered[:,0:2].shape) #map：map(function, element):function on element. 
-    
-    adj = sp.coo_matrix((edges_unordered[:, 2], (edges[:, 0], edges[:, 1])),
-                    shape=(idx_features.shape[0], idx_features.shape[0]),
-                    dtype=np.float32)
-    #del idx,idx_map,edges_unordered
-    
-    # build symmetric adjacency matrix
-    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
-    #adj = (adj + sp.eye(adj.shape[0])) #diagonal, set to 1
-
-    
-    return adj
-    
-
-def getAdjByBiogrid(idx_features, pathnet = '~/Google Drive/fasttext/cnn/TCGA_cnn/BIOGRID-ALL-3.5.169.tab2.txt'):
-    edges_unordered =  pd.read_table(pathnet ,index_col=None, usecols = [7,8] )
-    edges_unordered = np.asarray(edges_unordered)  
-    
-    idx = []
-    for i in range(len(edges_unordered)):
-        if edges_unordered[i,0] in idx_features.index and edges_unordered[i,1] in idx_features.index:
-            idx.append(i)
-    edges_unordered = edges_unordered[idx]
-    del i,idx
-    
-    # build graph
-    idx = np.array(idx_features.index)
-    idx_map = {j: i for i, j in enumerate(idx)}
-    # the key (names) in edges_unordered --> the index (which row) in matrix
-    edges = np.array(list(map(idx_map.get, edges_unordered.flatten())),
-                     dtype=np.int32).reshape(edges_unordered.shape) #map：map(function, element):function on element
-    
-    adj = sp.coo_matrix((np.ones(edges.shape[0]), (edges[:, 0], edges[:, 1])),
-                        shape=(idx_features.shape[0], idx_features.shape[0]),
-                        dtype=np.float32)
-    del idx,idx_map,edges_unordered
-    
-    # build symmetric adjacency matrix
-    adj = adj + adj.T.multiply(adj.T > adj) - adj.multiply(adj.T > adj)
-#    adj = adj + sp.eye(adj.shape[0])
-    
-#    sp.save_npz(os.path.join(pathnet,'adjCancer18442.npz'), adj)
-       
-    return adj
-
-def removeZeroAdj(adj, gedata):
-    #feature size: genes * samples, numpy.darray 
-    if adj[0,0] != 0:
-        #adj = adj - sp.eye(adj.shape[0])
-        adj.setdiag(0)
-#    adjdense = adj.todense()
-    indd = np.where(np.sum(adj, axis=1) != 0)[0]
-    adj = adj[indd, :][:, indd]
-#    adjdense = adjdense[indd,:]
-#    adjdense = adjdense[:, indd]
-    gedata = gedata[indd,:]
-
-    
-    return adj, gedata
 
 
 
