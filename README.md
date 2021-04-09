@@ -18,7 +18,7 @@ Five varables in the function:
 
 Run the file getADJ.py: 
 
-python getADJ.py --dataPath="" --networkPath="" --dataset="" net=""  --pathToSave=""
+python getADJ.py --dataPath="data" --networkPath="data" --dataset="Zhengsorted" net="String"  --pathToSave="data/Zhengsorted"
 
 
 
@@ -27,15 +27,20 @@ python getADJ.py --dataPath="" --networkPath="" --dataset="" net=""  --pathToSav
 Six variables should be provided.
 
 @dirData, type=str, "directory of cell x gene matrix"
+
 @dataset, type=str, "dataset to load"
+
 @dirAdj, type = str, "directory of adj matrix"
+
 @dirLabel, type = str, "directory of adj matrix"
+
 @outputDir, type = str, "directory to save results"
+
 @saveResults, type=int, default=0, "whether or not save the results, use 1 to save and 0 to not save"
 
 To train the model, run the file:
 
-python siggcn.py --dirData="" --dataset="Zhengsorted" --dirAdj="" --dirLabel="" --outputDir="" --saveResults=0
+python siggcn.py --dirData="data/" --dataset="Zhengsorted" --dirAdj="data/Zhengsorted/" --dirLabel="data/Zhengsorted/" --outputDir="data/output" --saveResults=0
 
 
 
