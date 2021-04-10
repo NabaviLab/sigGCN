@@ -53,9 +53,11 @@ python siggcn.py --dirData="data/" --dataset="Zhengsorted" --dirAdj="data/Zhengs
 
 ### 2.2 Train the model
 
+The dataset will be split into 80% as training, 10% as validaton, 10% as testing. 
+
 ### 2.3 Save results
 
- 
+ if use @saveResults=1, the results will be saved into the output folder.
 
 
 

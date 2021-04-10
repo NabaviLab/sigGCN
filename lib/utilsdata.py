@@ -20,6 +20,19 @@ import os
 from sklearn import preprocessing
 from sklearn import linear_model
 
+def spilt_dataset(train_all_data, labels, shuffle_index):
+        
+    train_size, val_size = int(len(shuffle_index)* 0.8), int(len(shuffle_index)* 0.9)
+    train_data = np.asarray(train_all_data).astype(np.float32)[shuffle_index[0:train_size]]
+    val_data = np.asarray(train_all_data).astype(np.float32)[shuffle_index[train_size:val_size]]
+    test_data = np.asarray(train_all_data).astype(np.float32)[shuffle_index[val_size:]]
+    train_labels = labels[shuffle_index[0:train_size]]
+    val_labels = labels[shuffle_index[train_size:val_size]]
+    test_labels = labels[shuffle_index[val_size:]]
+        
+    ll, cnt = np.unique(train_labels,return_counts=True)
+    return train_data, val_data, test_data, train_labels, val_labels, test_labels
+    
 def generate_loader(train_data,val_data, test_data, train_labels, val_labels, test_labels, batchsize):
     train_labels = train_labels.astype(np.int64)
     test_labels = test_labels.astype(np.int64)
@@ -92,46 +105,6 @@ def down_genes(alldata, adjall, num_gene):
 
     print('adj_shape:',adj.shape, ' [# cell, # gene]', train_data_all.shape)    
     return train_data_all, adj
-
-
-def get_rank_gene(OutputDir, dataset):
-    gene = pd.read_csv(OutputDir+dataset+'/rank_genes_dropouts_'+dataset+'.csv')
-    return gene
-    
-def rank_gene_dropouts(data, OutputDir, dataset):
-    # data: n_cell * n_gene
-    genes = np.zeros([np.shape(data)[1],1], dtype = '>U10')
-    train = pd.DataFrame(data)
-    train.columns = np.arange(len(train.columns))
-
-    # rank genes training set
-    dropout = (train == 0).sum(axis='rows') # n_gene * 1
-    dropout = (dropout / train.shape[0]) * 100
-    mean = train.mean(axis='rows') # n_gene * 1
-
-    notzero = np.where((np.array(mean) > 0) & (np.array(dropout) > 0))[0] 
-    zero = np.where(~((np.array(mean) > 0) & (np.array(dropout) > 0)))[0]
-    train_notzero = train.iloc[:,notzero]
-    train_zero = train.iloc[:,zero]
-    zero_genes = train_zero.columns
-
-    dropout = dropout.iloc[notzero]
-    mean = mean.iloc[notzero]
-
-    dropout = np.log2(np.array(dropout)).reshape(-1,1)
-    mean = np.array(mean).reshape(-1,1)
-    reg = linear_model.LinearRegression()
-    reg.fit(mean,dropout)
-
-    residuals = dropout - reg.predict(mean)
-    residuals = pd.Series(np.array(residuals).ravel(),index=train_notzero.columns) # n_gene * 1
-    residuals = residuals.sort_values(ascending=False)
-    sorted_genes = residuals.index
-    sorted_genes = sorted_genes.append(zero_genes)
-
-    genes[:,0] = sorted_genes.values
-    genes = pd.DataFrame(genes)
-    genes.to_csv(OutputDir + dataset + "/rank_genes_dropouts_" + dataset + ".csv", index = False)
 
 
 
@@ -219,9 +192,9 @@ def load_largesc(path, dirAdj, dataset, net):
     print(adj.shape)
     labels = load_labels(path, dataset)
     try:
-        shuffle_index = np.loadtxt(os.path.join(path + dataset) +'/shuffle_index_'+dataset+'1.txt')
+        shuffle_index = np.loadtxt(os.path.join(path + dataset) +'/shuffle_index_'+dataset+'.txt')
     except OSError:
-        shuffle_index = np.random.permutation(features.shape[0])
+        shuffle_index = None
     
     return adj, np.asarray(features), labels,shuffle_index  # cells*genes
 
